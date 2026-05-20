@@ -43,11 +43,9 @@ body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--text);
-  height: 100dvh;
-  height: 100vh;
   overflow: hidden;
   position: fixed;
-  width: 100%;
+  inset: 0;
 }
 button { font-family: var(--font); cursor: pointer; border: none; background: none; }
 input, textarea, select { font-family: var(--font); }
@@ -57,8 +55,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
 #app {
   display: flex;
   flex-direction: column;
-  height: 100dvh;
-  height: 100vh;
+  height: 100%;
   max-width: 480px;
   margin: 0 auto;
   background: var(--surface);
