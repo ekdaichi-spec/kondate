@@ -2050,14 +2050,47 @@ function randomSuggest() {
   }
   const weekKey = getWeekKey(State.weekOffset);
   State.weekPlan[weekKey] ??= {};
-  const mainPool = State.recipes.filter(r => r.category === '主菜' || r.category === 'その他');
-  const sidePool = State.recipes.filter(r => r.category === '副菜' || r.category === '汁物');
-  const pick = pool => pool[Math.floor(Math.random() * pool.length)].id;
+
+  // 今週すでに割り当て済みのレシピIDを収集
+  const usedIds = new Set();
+  DAY_KEYS.forEach(dk => {
+    MEAL_KEYS.forEach(mk => {
+      const slot = (State.weekPlan[weekKey][dk] || {})[mk];
+      if (slot) {
+        if (slot.main) usedIds.add(slot.main);
+        if (slot.side) usedIds.add(slot.side);
+      }
+    });
+  });
+
+  const allMain = State.recipes.filter(r => r.category === '主菜' || r.category === 'その他');
+  const allSide = State.recipes.filter(r => r.category === '副菜' || r.category === '汁物');
+
+  // 未使用レシピのみのプールをシャッフルして準備
+  const shuffle = arr => [...arr].sort(() => Math.random() - 0.5);
+  let mainAvail = shuffle(allMain.filter(r => !usedIds.has(r.id)));
+  let sideAvail = shuffle(allSide.filter(r => !usedIds.has(r.id)));
+
+  let didFallback = false;
+
+  // プールから1件取り出す（空の場合は全プールからランダム選択＝重複許可）
+  const pickFrom = (avail, allPool) => {
+    if (avail.length === 0) {
+      didFallback = true;
+      const fallback = allPool.length ? allPool : State.recipes;
+      return fallback[Math.floor(Math.random() * fallback.length)].id;
+    }
+    const chosen = avail.shift();
+    usedIds.add(chosen.id);
+    return chosen.id;
+  };
+
   // 平日: 夜のみ / 土日: 昼・夜
   const targetMeals = (dayIndex) => {
-    const isWeekend = dayIndex >= 5; // sat=5, sun=6
+    const isWeekend = dayIndex >= 5;
     return isWeekend ? ['lunch', 'dinner'] : ['dinner'];
   };
+
   let filled = 0;
   DAY_KEYS.forEach((dk, i) => {
     State.weekPlan[weekKey][dk] ??= {};
@@ -2066,14 +2099,19 @@ function randomSuggest() {
     });
     targetMeals(i).forEach(mk => {
       const slot = State.weekPlan[weekKey][dk][mk];
-      if (!slot.main) { slot.main = pick(mainPool.length ? mainPool : State.recipes); filled++; }
-      if (!slot.side) { slot.side = pick(sidePool.length ? sidePool : State.recipes); filled++; }
+      if (!slot.main) { slot.main = pickFrom(mainAvail, allMain); filled++; }
+      if (!slot.side) { slot.side = pickFrom(sideAvail, allSide); filled++; }
     });
   });
+
   Storage.set('weekplan', State.weekPlan);
   renderKondate();
   checkStaleShopping();
-  showToast(`${filled}件のメニューを提案しました`);
+  if (didFallback) {
+    showToast(`${filled}件を提案しました（レシピ不足のため一部重複あり）`);
+  } else {
+    showToast(`${filled}件のメニューを提案しました`);
+  }
 }
 
 // ===== Reset Week =====
