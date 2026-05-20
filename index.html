@@ -1167,6 +1167,8 @@ input:focus, textarea:focus, select:focus { outline: none; }
 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
 @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 </style>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -1175,6 +1177,7 @@ input:focus, textarea:focus, select:focus { outline: none; }
   <header id="header">
     <h1>🍱 献立アプリ</h1>
     <div id="header-actions">
+      <span id="sync-status" style="font-size:16px;"></span>
       <div class="servings-pill">
         <span>👥</span>
         <select id="global-servings" class="servings-select">
@@ -1647,6 +1650,85 @@ const SEED_RECIPES = [
 ];
 
 // ===== Storage =====
+// ===== Firebase Sync =====
+firebase.initializeApp({
+  apiKey: "AIzaSyBLPTilpZuEZqNkKimMh9CcjprsVEnv14g",
+  authDomain: "kondate-9a300.firebaseapp.com",
+  databaseURL: "https://kondate-9a300-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "kondate-9a300",
+  storageBucket: "kondate-9a300.firebasestorage.app",
+  messagingSenderId: "486593583585",
+  appId: "1:486593583585:web:ceeadf725bca80070c1aa0"
+});
+const _db = firebase.database();
+const _SYNC_KEYS = ['recipes', 'weekplan', 'shopping'];
+let _lastSyncAt = 0;
+let _isSyncing = false;
+let _suppressSync = false;
+
+function _setSyncStatus(icon) {
+  const el = document.getElementById('sync-status');
+  if (el) el.textContent = icon;
+}
+
+async function _syncToFirebase() {
+  try {
+    const now = Date.now();
+    await _db.ref('kondate').set({
+      recipes: State.recipes,
+      weekplan: State.weekPlan,
+      shopping: State.shopping,
+      _at: now,
+    });
+    _lastSyncAt = now;
+  } catch(e) {
+    console.warn('Firebase write error:', e);
+  }
+}
+
+async function _syncFromFirebase() {
+  if (_isSyncing) return;
+  _isSyncing = true;
+  _setSyncStatus('🔄');
+  try {
+    const snap = await _db.ref('kondate').get();
+    if (!snap.exists()) {
+      await _syncToFirebase();
+    } else {
+      const data = snap.val();
+      const remoteTime = data._at || 0;
+      if (remoteTime > _lastSyncAt) {
+        _lastSyncAt = remoteTime;
+        _suppressSync = true;
+        if (data.recipes != null) {
+          State.recipes = data.recipes;
+          localStorage.setItem('kondate_recipes', JSON.stringify(data.recipes));
+        }
+        if (data.weekplan != null) {
+          State.weekPlan = data.weekplan;
+          localStorage.setItem('kondate_weekplan', JSON.stringify(data.weekplan));
+        }
+        if ('shopping' in data) {
+          State.shopping = data.shopping;
+          localStorage.setItem('kondate_shopping', JSON.stringify(data.shopping));
+        }
+        _suppressSync = false;
+        if (State._ready) {
+          renderKondate();
+          renderRecipes();
+          renderShopping();
+          showToast('献立データを同期しました');
+        }
+      }
+    }
+    _setSyncStatus('');
+  } catch(e) {
+    console.warn('Firebase sync error:', e);
+    _setSyncStatus('');
+  }
+  _isSyncing = false;
+}
+
 const Storage = {
   get(key, fallback) {
     try { return JSON.parse(localStorage.getItem('kondate_' + key)) ?? fallback; }
@@ -1655,11 +1737,13 @@ const Storage = {
   set(key, value) {
     try { localStorage.setItem('kondate_' + key, JSON.stringify(value)); }
     catch(e) { if (e.name === 'QuotaExceededError') showToast('ストレージが満杯です'); }
+    if (!_suppressSync && _SYNC_KEYS.includes(key)) _syncToFirebase();
   }
 };
 
 // ===== App State =====
 const State = {
+  _ready: false,
   activeTab: 'kondate',
   weekOffset: 0,
   servings: 4,
@@ -1713,6 +1797,12 @@ function init() {
   renderKondate();
   renderRecipes();
   renderShopping();
+  State._ready = true;
+  _syncFromFirebase();
+  window.addEventListener('focus', _syncFromFirebase);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) _syncFromFirebase();
+  });
 }
 
 // ===== Utils =====
