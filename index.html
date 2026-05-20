@@ -2953,8 +2953,9 @@ function bindEvents() {
   // Dialog
   document.getElementById('dialog-cancel').addEventListener('click', closeDialog);
   document.getElementById('dialog-confirm').addEventListener('click', () => {
+    const cb = State.dialogCallback;
     closeDialog();
-    if (State.dialogCallback) State.dialogCallback();
+    if (cb) cb();
   });
   document.getElementById('dialog-overlay').addEventListener('click', e => {
     if (e.target === document.getElementById('dialog-overlay')) closeDialog();
